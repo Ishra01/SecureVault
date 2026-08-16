@@ -21,7 +21,7 @@ function Setup2FA() {
     if (hasRun.current) return
     hasRun.current = true
 
-    axios.post('http://localhost:5001/2fa/setup', {}, {
+    axios.post(`${import.meta.env.VITE_API_URL}/2fa/setup`, {}, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(res => {
@@ -33,7 +33,7 @@ function Setup2FA() {
   }, [])
 
   const handleEnable = () => {
-    axios.post('http://localhost:5001/2fa/enable',
+    axios.post(`${import.meta.env.VITE_API_URL}/2fa/enable`,
       { code },
       { headers: { Authorization: `Bearer ${token}` } }
     )

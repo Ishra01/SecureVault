@@ -13,7 +13,7 @@ function AuditLog() {
       navigate('/login')
       return
     }
-    axios.get('http://localhost:5001/audit', {
+    axios.get(`${import.meta.env.VITE_API_URL}/audit`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(res => setLogs(res.data))

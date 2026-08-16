@@ -13,7 +13,7 @@ function VerifyEmail() {
     if (hasRun.current) return
     hasRun.current = true
 
-    axios.get(`http://localhost:5001/verify/${token}`)
+       axios.get(`${import.meta.env.VITE_API_URL}/verify/${token}`)
       .then(res => {
         setMessage(res.data.message)
         setSuccess(true)

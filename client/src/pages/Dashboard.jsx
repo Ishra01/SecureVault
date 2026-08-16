@@ -29,7 +29,7 @@ function Dashboard() {
 
   const fetchPasswords = async () => {
     try {
-      const res = await axios.get('http://localhost:5001/passwords', {
+      const res = await axios.get(`${import.meta.env.VITE_API_URL}/passwords`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       setPasswords(res.data)
@@ -107,7 +107,7 @@ function Dashboard() {
       const isBreached = await checkBreach(password)
 
       if (editingId) {
-        await axios.put(`http://localhost:5001/passwords/${editingId}`, {
+        await axios.put(`${import.meta.env.VITE_API_URL}/passwords/${editingId}`, {
           website,
           username,
           encryptedPassword,
@@ -118,7 +118,7 @@ function Dashboard() {
         })
         setMessage('Password updated!')
       } else {
-        await axios.post('http://localhost:5001/passwords', {
+        await axios.post(`${import.meta.env.VITE_API_URL}/passwords`, {
           website,
           username,
           encryptedPassword,
@@ -153,7 +153,7 @@ function Dashboard() {
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`http://localhost:5001/passwords/${id}`, {
+      await axios.delete(`${import.meta.env.VITE_API_URL}/passwords/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       if (selectedId === id) setSelectedId(null)
