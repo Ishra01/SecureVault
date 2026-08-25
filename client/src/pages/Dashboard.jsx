@@ -364,6 +364,9 @@ function Dashboard() {
           <KeyRound size={20} /> SecureVault
         </h2>
         <div className="dashboard-nav-right">
+          <button className="nav-link" onClick={() => navigate('/setup-2fa')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <ShieldCheck size={16} /> 2FA
+          </button>
           <button className="nav-link" onClick={() => navigate('/audit')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <BarChart3 size={16} /> Audit Log
           </button>
