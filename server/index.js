@@ -66,32 +66,20 @@ app.post('/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-
-    // Create user
+    // Create user - auto-verified for now.
+    // Email verification is temporarily disabled: Render's free tier
+    // blocks/times-out outbound SMTP connections, so sending the
+    // verification email was failing here. The account creation and
+    // login flow itself is unaffected - only the extra "click a link
+    // in your email" step is skipped.
     const user = new User({
       email,
       password: hashedPassword,
-      verificationToken,
+      isVerified: true,
     });
     await user.save();
 
-    // Send verification email
-    const verifyUrl = `${process.env.CLIENT_URL}/verify/${verificationToken}`;
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Verify your SecureVault account',
-      html: `
-        <h2>Welcome to SecureVault! 🔐</h2>
-        <p>Click the link below to verify your email:</p>
-        <a href="${verifyUrl}" style="background:#00d4ff;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Verify Email</a>
-        <p>This link expires in 24 hours.</p>
-      `,
-    });
-
-    res.json({ message: 'Registration successful! Please check your email to verify your account.' });
+    res.json({ message: 'Registration successful! You can log in now.' });
   } catch (error) {
     console.log('Register error:', error.message);
     res.status(500).json({ message: 'Registration failed!' });
