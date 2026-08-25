@@ -1,4 +1,13 @@
 require('dotenv').config();
+const dns = require('dns');
+// Render's network doesn't reliably support outbound IPv6, but Node's
+// default DNS resolution order can still return an IPv6 address first
+// for smtp.gmail.com even with Nodemailer's `family: 4` option set.
+// This forces IPv4 to be preferred at the Node runtime level, which is
+// the more reliable fix for the "connect ENETUNREACH 2607:f8b0:..."
+// error seen when sending verification emails from Render.
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
