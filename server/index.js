@@ -24,8 +24,15 @@ mongoose.connect(process.env.MONGODB_URI)
   .catch(err => console.log('Error:', err));
 
 // Email transporter setup
+// Using explicit SMTP settings (instead of service: 'gmail') with family: 4
+// to force IPv4. Render's network doesn't reliably support outbound IPv6,
+// and Node tries IPv6 first by default - this was causing
+// "connect ENETUNREACH" errors when reaching Gmail's servers.
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  family: 4,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
