@@ -25,7 +25,43 @@ function Dashboard() {
   const token = localStorage.getItem('token')
   const userEmail = localStorage.getItem('userEmail')
   const userId = localStorage.getItem('userId')
-  const SECRET_KEY = userId
+
+  // ---- Zero-knowledge vault key ----
+  // The AES key is derived in the browser from a passphrase only the user
+  // knows, via PBKDF2 + a per-user salt. Neither the passphrase nor the
+  // derived key is ever sent to the server - the server only ever stores
+  // ciphertext, a (non-secret) salt, and an encrypted "canary" value used
+  // to verify a key is correct WITHOUT ever trusting an unverified key.
+  const VAULT_CANARY = 'vault-check-ok'
+
+  const [vaultKey, setVaultKey] = useState(null)
+  const [vaultUnlocked, setVaultUnlocked] = useState(false)
+  const [vaultSalt, setVaultSalt] = useState(null)
+  const [vaultCheck, setVaultCheck] = useState(null)
+  const [vaultMode, setVaultMode] = useState(null) // 'setup' | 'unlock' | null | 'loading'
+  const [passphraseInput, setPassphraseInput] = useState('')
+  const [passphraseConfirm, setPassphraseConfirm] = useState('')
+  const [vaultError, setVaultError] = useState('')
+
+  const deriveKey = (passphrase, salt) => {
+    return CryptoJS.PBKDF2(passphrase, salt, {
+      keySize: 256 / 32,
+      iterations: 100000,
+    }).toString()
+  }
+
+  // Returns true only if `key` correctly decrypts the stored canary back
+  // to the exact known string. This is the ONLY thing allowed to grant
+  // access to the dashboard - a key existing in sessionStorage is never
+  // enough on its own.
+  const verifyKey = (key, encryptedCanary) => {
+    try {
+      const bytes = CryptoJS.AES.decrypt(encryptedCanary, key)
+      return bytes.toString(CryptoJS.enc.Utf8) === VAULT_CANARY
+    } catch {
+      return false
+    }
+  }
 
   const fetchPasswords = async () => {
     try {
@@ -44,15 +80,98 @@ function Dashboard() {
       return
     }
     fetchPasswords()
+    setVaultMode('loading')
+
+    axios.get(`${import.meta.env.VITE_API_URL}/vault/salt`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(res => {
+      const { vaultSalt: salt, vaultCheck: check } = res.data
+      setVaultSalt(salt)
+      setVaultCheck(check)
+
+      if (!salt) {
+        setVaultMode('setup')
+        return
+      }
+
+      // A key may be sitting in sessionStorage from earlier this tab
+      // session - but it's only trusted if it actually decrypts the
+      // canary correctly. Otherwise we throw it away and re-prompt.
+      const storedKey = sessionStorage.getItem('vaultKey')
+      if (storedKey && verifyKey(storedKey, check)) {
+        setVaultKey(storedKey)
+        setVaultUnlocked(true)
+        setVaultMode(null)
+      } else {
+        sessionStorage.removeItem('vaultKey')
+        setVaultMode('unlock')
+      }
+    }).catch(() => console.log('Could not check vault status'))
   }, [])
 
+  const handleVaultSetup = async (e) => {
+    e.preventDefault()
+    setVaultError('')
+    if (passphraseInput.length < 8) {
+      setVaultError('Passphrase must be at least 8 characters.')
+      return
+    }
+    if (passphraseInput !== passphraseConfirm) {
+      setVaultError('Passphrases do not match.')
+      return
+    }
+    try {
+      const setupRes = await axios.post(`${import.meta.env.VITE_API_URL}/vault/setup`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const key = deriveKey(passphraseInput, setupRes.data.vaultSalt)
+      const encryptedCanary = CryptoJS.AES.encrypt(VAULT_CANARY, key).toString()
+
+      await axios.post(`${import.meta.env.VITE_API_URL}/vault/confirm`,
+        { vaultCheck: encryptedCanary },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+
+      sessionStorage.setItem('vaultKey', key)
+      setVaultKey(key)
+      setVaultUnlocked(true)
+      setVaultMode(null)
+      setPassphraseInput('')
+      setPassphraseConfirm('')
+    } catch (err) {
+      setVaultError('Vault setup failed. Try again.')
+    }
+  }
+
+  const handleVaultUnlock = (e) => {
+    e.preventDefault()
+    setVaultError('')
+    const key = deriveKey(passphraseInput, vaultSalt)
+
+    if (!verifyKey(key, vaultCheck)) {
+      setVaultError('Incorrect vault passphrase.')
+      return
+    }
+
+    sessionStorage.setItem('vaultKey', key)
+    setVaultKey(key)
+    setVaultUnlocked(true)
+    setVaultMode(null)
+    setPassphraseInput('')
+  }
+
   const encryptPassword = (pass) => {
-    return CryptoJS.AES.encrypt(pass, SECRET_KEY).toString()
+    return CryptoJS.AES.encrypt(pass, vaultKey).toString()
   }
 
   const decryptPassword = (encryptedPass) => {
-    const bytes = CryptoJS.AES.decrypt(encryptedPass, SECRET_KEY)
-    return bytes.toString(CryptoJS.enc.Utf8)
+    try {
+      const bytes = CryptoJS.AES.decrypt(encryptedPass, vaultKey)
+      const result = bytes.toString(CryptoJS.enc.Utf8)
+      return result || '(wrong passphrase)'
+    } catch {
+      return '(wrong passphrase)'
+    }
   }
 
   const checkBreach = async (pass) => {
@@ -171,6 +290,7 @@ function Dashboard() {
     localStorage.removeItem('token')
     localStorage.removeItem('userId')
     localStorage.removeItem('userEmail')
+    sessionStorage.removeItem('vaultKey')
     navigate('/login')
   }
 
@@ -186,6 +306,56 @@ function Dashboard() {
   )
 
   const selected = passwords.find(p => p._id === selectedId)
+
+  if (vaultMode === 'loading') {
+    return (
+      <div className="dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <p>Checking vault status...</p>
+      </div>
+    )
+  }
+
+  if (vaultMode) {
+    return (
+      <div className="dashboard" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <form
+          onSubmit={vaultMode === 'setup' ? handleVaultSetup : handleVaultUnlock}
+          style={{ maxWidth: 380, width: '100%', padding: 24, border: '1px solid #333', borderRadius: 12 }}
+        >
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <KeyRound size={20} />
+            {vaultMode === 'setup' ? 'Set Your Vault Passphrase' : 'Unlock Your Vault'}
+          </h2>
+          <p style={{ fontSize: 14, opacity: 0.8, marginBottom: 16 }}>
+            {vaultMode === 'setup'
+              ? "This is separate from your login password and never leaves your browser. It's used to encrypt your vault - we can't recover it if you forget it, so store it somewhere safe."
+              : 'Enter your vault passphrase to decrypt your saved passwords.'}
+          </p>
+          <input
+            type="password"
+            placeholder="Vault passphrase"
+            value={passphraseInput}
+            onChange={(e) => setPassphraseInput(e.target.value)}
+            style={{ width: '100%', marginBottom: 10 }}
+            autoFocus
+          />
+          {vaultMode === 'setup' && (
+            <input
+              type="password"
+              placeholder="Confirm passphrase"
+              value={passphraseConfirm}
+              onChange={(e) => setPassphraseConfirm(e.target.value)}
+              style={{ width: '100%', marginBottom: 10 }}
+            />
+          )}
+          {vaultError && <p style={{ color: '#e74c3c', fontSize: 13 }}>{vaultError}</p>}
+          <button type="submit" style={{ width: '100%' }}>
+            {vaultMode === 'setup' ? 'Create Vault' : 'Unlock'}
+          </button>
+        </form>
+      </div>
+    )
+  }
 
   return (
     <div className="dashboard">

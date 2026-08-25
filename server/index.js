@@ -221,6 +221,67 @@ app.post('/2fa/enable', async (req, res) => {
 });
 
 // ==================
+// VAULT (ZERO-KNOWLEDGE KEY) ROUTES
+// ==================
+
+// Generate and save a per-user salt the first time they set a vault passphrase
+app.post('/vault/setup', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+
+    if (user.vaultSalt) {
+      return res.status(400).json({ message: 'Vault already set up!' });
+    }
+
+    // Salt is not secret - it's fine for the server to generate and store it.
+    // Only the passphrase (never sent here) has to stay secret.
+    user.vaultSalt = crypto.randomBytes(16).toString('hex');
+    await user.save();
+
+    res.json({ vaultSalt: user.vaultSalt });
+  } catch (error) {
+    res.status(500).json({ message: 'Vault setup failed!' });
+  }
+});
+
+// Saves a "canary" - a known string encrypted client-side with the newly
+// derived key. This lets the app later verify a passphrase is correct
+// BEFORE trusting it, instead of silently accepting whatever key is
+// sitting in sessionStorage. The server never learns the passphrase or
+// the plaintext canary, only the ciphertext.
+app.post('/vault/confirm', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const { vaultCheck } = req.body;
+    const user = await User.findById(decoded.id);
+
+    user.vaultCheck = vaultCheck;
+    await user.save();
+
+    res.json({ message: 'Vault confirmed!' });
+  } catch (error) {
+    res.status(500).json({ message: 'Vault confirm failed!' });
+  }
+});
+
+// Fetch the user's existing salt + canary (needed to re-derive and verify
+// the key on every login)
+app.get('/vault/salt', async (req, res) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+
+    res.json({ vaultSalt: user.vaultSalt || null, vaultCheck: user.vaultCheck || null });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not fetch vault salt!' });
+  }
+});
+
+// ==================
 // PASSWORD ROUTES
 // ==================
 

@@ -26,6 +26,14 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  vaultSalt: {
+    type: String,
+    default: null,
+  },
+  vaultCheck: {
+    type: String,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
