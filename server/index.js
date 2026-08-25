@@ -1,13 +1,4 @@
 require('dotenv').config();
-const dns = require('dns');
-// Render's network doesn't reliably support outbound IPv6, but Node's
-// default DNS resolution order can still return an IPv6 address first
-// for smtp.gmail.com even with Nodemailer's `family: 4` option set.
-// This forces IPv4 to be preferred at the Node runtime level, which is
-// the more reliable fix for the "connect ENETUNREACH 2607:f8b0:..."
-// error seen when sending verification emails from Render.
-dns.setDefaultResultOrder('ipv4first');
-
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -16,7 +7,6 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const { Resend } = require('resend');
 
 const User = require('./models/User');
 const Password = require('./models/Password');
@@ -31,14 +21,6 @@ app.use(express.json());
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected!'))
   .catch(err => console.log('Error:', err));
-
-// Email setup - using Resend instead of Nodemailer/raw SMTP.
-// Render's free tier blocks/times-out outbound SMTP connections (ports
-// 465/587), which made Nodemailer unreliable regardless of IPv4/IPv6
-// fixes. Resend sends over HTTPS (port 443, same as any normal API
-// call), which isn't blocked on any hosting tier.
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 
 // ==================
 // AUTH ROUTES
@@ -58,17 +40,10 @@ app.post('/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user - auto-verified.
-    // Email verification (via Resend) works, but Resend's sandbox
-    // sender only delivers to the email address tied to the Resend
-    // account itself until a custom domain is verified - which would
-    // break signup for any real visitor to the live demo. Auto-verify
-    // keeps the public demo usable; verification can be re-enabled
-    // once a domain is verified on Resend.
+    // Create user - no email verification step, log in immediately
     const user = new User({
       email,
       password: hashedPassword,
-      isVerified: true,
     });
     await user.save();
 
@@ -76,22 +51,6 @@ app.post('/register', async (req, res) => {
   } catch (error) {
     console.log('Register error:', error.message);
     res.status(500).json({ message: 'Registration failed!' });
-  }
-});
-
-// Verify Email
-app.get('/verify/:token', async (req, res) => {
-  try {
-    const user = await User.findOne({ verificationToken: req.params.token });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid or expired token!' });
-    }
-    user.isVerified = true;
-    user.verificationToken = null;
-    await user.save();
-    res.json({ message: 'Email verified successfully! You can now login.' });
-  } catch (error) {
-    res.status(500).json({ message: 'Verification failed!' });
   }
 });
 
@@ -106,11 +65,6 @@ app.post('/login', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({ message: 'User not found!' });
-    }
-
-    // Check if verified
-    if (!user.isVerified) {
-      return res.status(400).json({ message: 'Please verify your email first!' });
     }
 
     // Check password
