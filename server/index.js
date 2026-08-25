@@ -16,7 +16,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const User = require('./models/User');
 const Password = require('./models/Password');
@@ -32,21 +32,13 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected!'))
   .catch(err => console.log('Error:', err));
 
-// Email transporter setup
-// Using explicit SMTP settings (instead of service: 'gmail') with family: 4
-// to force IPv4. Render's network doesn't reliably support outbound IPv6,
-// and Node tries IPv6 first by default - this was causing
-// "connect ENETUNREACH" errors when reaching Gmail's servers.
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  family: 4,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// Email setup - using Resend instead of Nodemailer/raw SMTP.
+// Render's free tier blocks/times-out outbound SMTP connections (ports
+// 465/587), which made Nodemailer unreliable regardless of IPv4/IPv6
+// fixes. Resend sends over HTTPS (port 443, same as any normal API
+// call), which isn't blocked on any hosting tier.
+const resend = new Resend(process.env.RESEND_API_KEY);
+
 
 // ==================
 // AUTH ROUTES
@@ -66,20 +58,36 @@ app.post('/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user - auto-verified for now.
-    // Email verification is temporarily disabled: Render's free tier
-    // blocks/times-out outbound SMTP connections, so sending the
-    // verification email was failing here. The account creation and
-    // login flow itself is unaffected - only the extra "click a link
-    // in your email" step is skipped.
+    // Generate verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
+    // Create user
     const user = new User({
       email,
       password: hashedPassword,
-      isVerified: true,
+      verificationToken,
     });
     await user.save();
 
-    res.json({ message: 'Registration successful! You can log in now.' });
+    // Send verification email via Resend.
+    // Note: without a verified custom domain on Resend, the sandbox
+    // sender (onboarding@resend.dev) can only deliver to the email
+    // address you signed up to Resend with - not to arbitrary emails.
+    // Verify a domain in the Resend dashboard to send to any address.
+    const verifyUrl = `${process.env.CLIENT_URL}/verify/${verificationToken}`;
+    await resend.emails.send({
+      from: 'SecureVault <onboarding@resend.dev>',
+      to: email,
+      subject: 'Verify your SecureVault account',
+      html: `
+        <h2>Welcome to SecureVault! 🔐</h2>
+        <p>Click the link below to verify your email:</p>
+        <a href="${verifyUrl}" style="background:#00d4ff;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Verify Email</a>
+        <p>This link expires in 24 hours.</p>
+      `,
+    });
+
+    res.json({ message: 'Registration successful! Please check your email to verify your account.' });
   } catch (error) {
     console.log('Register error:', error.message);
     res.status(500).json({ message: 'Registration failed!' });
