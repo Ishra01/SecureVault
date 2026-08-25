@@ -12,6 +12,7 @@ function Setup2FA() {
   const [code, setCode] = useState('')
   const [message, setMessage] = useState('')
   const [enabled, setEnabled] = useState(false)
+  const [alreadyEnabled, setAlreadyEnabled] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -28,7 +29,11 @@ function Setup2FA() {
         setQrCode(res.data.qrCode)
       })
       .catch(err => {
-        setMessage(err.response?.data?.message || 'Failed to load QR code')
+        const msg = err.response?.data?.message || 'Failed to load QR code'
+        setMessage(msg)
+        if (err.response?.status === 400) {
+          setAlreadyEnabled(true)
+        }
       })
   }, [])
 
@@ -54,7 +59,7 @@ function Setup2FA() {
         </div>
         <h2>Set Up Two-Factor Authentication</h2>
 
-        {!enabled && (
+        {!enabled && !alreadyEnabled && (
           <>
             <p>1. Scan this QR code with your authenticator app</p>
             {qrCode && <img src={qrCode} alt="2FA QR Code" style={{ margin: '20px auto', display: 'block' }} />}
@@ -80,7 +85,7 @@ function Setup2FA() {
           </p>
         )}
 
-        {enabled && (
+        {(enabled || alreadyEnabled) && (
           <button className="auth-btn" style={{ marginTop: '15px' }} onClick={() => navigate('/dashboard')}>
             Back to Dashboard
           </button>

@@ -188,6 +188,13 @@ app.post('/2fa/setup', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(decoded.id);
 
+    // If 2FA is already enabled, don't silently generate a new secret -
+    // that would invalidate the user's existing authenticator app entry
+    // without warning them.
+    if (user.twoFactorEnabled) {
+      return res.status(400).json({ message: '2FA is already enabled on this account.' });
+    }
+
     const secret = speakeasy.generateSecret({ name: `SecureVault (${user.email})` });
     user.twoFactorSecret = secret.base32;
     await user.save();
