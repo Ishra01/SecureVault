@@ -58,36 +58,21 @@ app.post('/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-
-    // Create user
+    // Create user - auto-verified.
+    // Email verification (via Resend) works, but Resend's sandbox
+    // sender only delivers to the email address tied to the Resend
+    // account itself until a custom domain is verified - which would
+    // break signup for any real visitor to the live demo. Auto-verify
+    // keeps the public demo usable; verification can be re-enabled
+    // once a domain is verified on Resend.
     const user = new User({
       email,
       password: hashedPassword,
-      verificationToken,
+      isVerified: true,
     });
     await user.save();
 
-    // Send verification email via Resend.
-    // Note: without a verified custom domain on Resend, the sandbox
-    // sender (onboarding@resend.dev) can only deliver to the email
-    // address you signed up to Resend with - not to arbitrary emails.
-    // Verify a domain in the Resend dashboard to send to any address.
-    const verifyUrl = `${process.env.CLIENT_URL}/verify/${verificationToken}`;
-    await resend.emails.send({
-      from: 'SecureVault <onboarding@resend.dev>',
-      to: email,
-      subject: 'Verify your SecureVault account',
-      html: `
-        <h2>Welcome to SecureVault! 🔐</h2>
-        <p>Click the link below to verify your email:</p>
-        <a href="${verifyUrl}" style="background:#00d4ff;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;">Verify Email</a>
-        <p>This link expires in 24 hours.</p>
-      `,
-    });
-
-    res.json({ message: 'Registration successful! Please check your email to verify your account.' });
+    res.json({ message: 'Registration successful! You can log in now.' });
   } catch (error) {
     console.log('Register error:', error.message);
     res.status(500).json({ message: 'Registration failed!' });
