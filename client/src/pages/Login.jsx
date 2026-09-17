@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import axios from 'axios'
+import API from '../api/axios'
 import { Lock, Eye, EyeOff, KeyRound } from 'lucide-react'
 
 function Login() {
@@ -21,13 +21,15 @@ function Login() {
 
     setLoading(true)
     try {
-      const res = await axios.post(`${import.meta.env.VITE_API_URL}/login`, {
+      const res = await API.post('/login', {
         email,
         password,
         twoFactorCode: requires2FA ? twoFactorCode : undefined,
       })
 
-      localStorage.setItem('token', res.data.token)
+      // The JWT itself is now set as an httpOnly cookie by the server -
+      // it's never present in this response body or in localStorage, so
+      // client-side JS (and any XSS) can't read or exfiltrate it.
       localStorage.setItem('userId', res.data.userId)
       localStorage.setItem('userEmail', res.data.email)
       navigate('/dashboard')

@@ -1,21 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import API from '../api/axios'
 import { ArrowLeft, BarChart3, CheckCircle2, XCircle } from 'lucide-react'
 
 function AuditLog() {
   const [logs, setLogs] = useState([])
   const navigate = useNavigate()
-  const token = localStorage.getItem('token')
+  // The actual auth token is an httpOnly cookie now and can't be read from
+  // JS at all; userId is just a non-secret client-side flag for whether to
+  // bother rendering this page. The real check happens server-side on
+  // every request (and a 401 there redirects to /login automatically).
+  const userId = localStorage.getItem('userId')
 
   useEffect(() => {
-    if (!token) {
+    if (!userId) {
       navigate('/login')
       return
     }
-    axios.get(`${import.meta.env.VITE_API_URL}/audit`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    API.get('/audit')
       .then(res => setLogs(res.data))
       .catch(err => console.log('Error fetching logs'))
   }, [])

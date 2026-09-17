@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import API from '../api/axios'
 import CryptoJS from 'crypto-js'
 import {
   KeyRound, Search, Plus, LogOut, BarChart3, Globe, User,
@@ -22,7 +22,9 @@ function Dashboard() {
   const [editingId, setEditingId] = useState(null)
   const navigate = useNavigate()
 
-  const token = localStorage.getItem('token')
+  // Auth is enforced server-side via the httpOnly cookie now; userId is
+  // just a client-side flag for whether to render this page at all, and
+  // is also used below as an input to the vault encryption key.
   const userEmail = localStorage.getItem('userEmail')
   const userId = localStorage.getItem('userId')
 
@@ -65,9 +67,7 @@ function Dashboard() {
 
   const fetchPasswords = async () => {
     try {
-      const res = await axios.get(`${import.meta.env.VITE_API_URL}/passwords`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const res = await API.get('/passwords')
       setPasswords(res.data)
     } catch (err) {
       console.log('Error fetching passwords')
@@ -75,16 +75,14 @@ function Dashboard() {
   }
 
   useEffect(() => {
-    if (!token) {
+    if (!userId) {
       navigate('/login')
       return
     }
     fetchPasswords()
     setVaultMode('loading')
 
-    axios.get(`${import.meta.env.VITE_API_URL}/vault/salt`, {
-      headers: { Authorization: `Bearer ${token}` }
-    }).then(res => {
+    API.get('/vault/salt').then(res => {
       const { vaultSalt: salt, vaultCheck: check } = res.data
       setVaultSalt(salt)
       setVaultCheck(check)
@@ -121,16 +119,11 @@ function Dashboard() {
       return
     }
     try {
-      const setupRes = await axios.post(`${import.meta.env.VITE_API_URL}/vault/setup`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      const setupRes = await API.post('/vault/setup', {})
       const key = deriveKey(passphraseInput, setupRes.data.vaultSalt)
       const encryptedCanary = CryptoJS.AES.encrypt(VAULT_CANARY, key).toString()
 
-      await axios.post(`${import.meta.env.VITE_API_URL}/vault/confirm`,
-        { vaultCheck: encryptedCanary },
-        { headers: { Authorization: `Bearer ${token}` } }
-      )
+      await API.post('/vault/confirm', { vaultCheck: encryptedCanary })
 
       sessionStorage.setItem('vaultKey', key)
       setVaultKey(key)
@@ -226,25 +219,21 @@ function Dashboard() {
       const isBreached = await checkBreach(password)
 
       if (editingId) {
-        await axios.put(`${import.meta.env.VITE_API_URL}/passwords/${editingId}`, {
+        await API.put(`/passwords/${editingId}`, {
           website,
           username,
           encryptedPassword,
           strength,
           isBreached,
-        }, {
-          headers: { Authorization: `Bearer ${token}` }
         })
         setMessage('Password updated!')
       } else {
-        await axios.post(`${import.meta.env.VITE_API_URL}/passwords`, {
+        await API.post('/passwords', {
           website,
           username,
           encryptedPassword,
           strength,
           isBreached,
-        }, {
-          headers: { Authorization: `Bearer ${token}` }
         })
         setMessage('Password saved!')
       }
@@ -272,9 +261,7 @@ function Dashboard() {
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${import.meta.env.VITE_API_URL}/passwords/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      await API.delete(`/passwords/${id}`)
       if (selectedId === id) setSelectedId(null)
       fetchPasswords()
     } catch (err) {
@@ -286,8 +273,14 @@ function Dashboard() {
     setShowPassword(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
+  const handleLogout = async () => {
+    // The cookie is httpOnly, so it can't be cleared from JS directly -
+    // the server has to send the clearing response.
+    try {
+      await API.post('/logout')
+    } catch {
+      // even if this fails, still clear local state and send them to login
+    }
     localStorage.removeItem('userId')
     localStorage.removeItem('userEmail')
     sessionStorage.removeItem('vaultKey')

@@ -1,30 +1,31 @@
 import { useEffect, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import API from '../api/axios'
 import { KeyRound } from 'lucide-react'
 
 function Setup2FA() {
   const navigate = useNavigate()
-  const token = localStorage.getItem('token')
+  // Auth is enforced server-side via the httpOnly cookie; userId here is
+  // just a client-side flag for whether to render this page at all.
+  const userId = localStorage.getItem('userId')
   const hasRun = useRef(false)
 
   const [qrCode, setQrCode] = useState(null)
   const [code, setCode] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
   const [message, setMessage] = useState('')
   const [enabled, setEnabled] = useState(false)
   const [alreadyEnabled, setAlreadyEnabled] = useState(false)
 
   useEffect(() => {
-    if (!token) {
+    if (!userId) {
       navigate('/login')
       return
     }
     if (hasRun.current) return
     hasRun.current = true
 
-    axios.post(`${import.meta.env.VITE_API_URL}/2fa/setup`, {}, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
+    API.post('/2fa/setup', {})
       .then(res => {
         setQrCode(res.data.qrCode)
       })
@@ -38,10 +39,7 @@ function Setup2FA() {
   }, [])
 
   const handleEnable = () => {
-    axios.post(`${import.meta.env.VITE_API_URL}/2fa/enable`,
-      { code },
-      { headers: { Authorization: `Bearer ${token}` } }
-    )
+    API.post('/2fa/enable', { code, currentPassword })
       .then(res => {
         setMessage(res.data.message)
         setEnabled(true)
@@ -73,6 +71,16 @@ function Setup2FA() {
               onChange={(e) => setCode(e.target.value)}
               placeholder="000000"
             />
+
+            <p>3. Confirm it's you - enter your master password</p>
+            <input
+              className="auth-input"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Master password"
+            />
+
             <button className="auth-btn" style={{ marginTop: '15px' }} onClick={handleEnable}>
               Enable 2FA
             </button>
